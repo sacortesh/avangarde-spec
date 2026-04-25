@@ -3,43 +3,60 @@
 ## What this is
 
 A personal OpenSpec model for agent-assisted development.
-Six scripts define six phases. Human validates at the end of each.
+Five scripts, each wizard-driven. Human validates at the end of each phase.
 
 ---
 
 ## Mental model
 
 ```
-init-project.sh   →  AI proposes constitution (vision + stack + data model)  →  Human approves
-plan-project.sh   →  AI proposes phased task list                            →  Human approves
-add-scope.sh      →  AI places new feature/bugfix in correct phase           →  Human approves
-new-change.sh     →  AI writes BDD for next task                             →  Human approves
-run-loop.sh       →  AI codes (Ralph loop)  →  Sensors pass
-archive-change.sh →  Diff against BDD  →  Human approves  →  Archived
+init-project.sh     →  Wizard: what to build, tech stack  →  Human approves constitution
+plan-add-scope.sh   →  Wizard: plan phases OR add scope   →  Human approves task list
+execute-pre-task.sh →  Explains BDD, checks sensors       →  Human approves before coding
+execute-task.sh     →  Ralph loop until sensors pass
+closure-task.sh     →  Human validates behavior           →  Commit + archive
 ```
 
-The scripts ARE the phase boundaries. Everything else (guides, sensors, specs) are inputs and outputs to them.
+Each task lives on its own branch. Commits are small and focused.
 
 ---
 
-## The six scripts
+## The scripts
 
 ### `init-project.sh`
 Constitution phase. Run once per project.
 
-1. Human describes the product idea.
-2. AI proposes: vision, tech stack, data model, architecture rules.
-3. Human approves or edits.
-4. Output: `guides/` seeded with architecture and coding rules, `specs/product/vision.md`.
+Wizard prompts:
+- "What are you building?"
+- "What tech stack? (or let AI suggest based on description)"
+- "Any constraints or non-goals?"
 
-### `plan-project.sh`
-Planning phase. Run once after constitution, re-run when scope changes significantly.
+AI proposes: vision, data model, architecture rules, initial guides.
+Human approves or edits.
 
-1. AI reads the constitution and proposes an ordered, phased task list.
-2. Tasks within a phase are independent and parallelizable.
-3. Phases depend on prior phases completing.
-4. Human approves the ordering and phase grouping.
-5. Output: `harness/loops/tasks.md`.
+Output: `guides/` seeded, `specs/product/vision.md` created.
+
+---
+
+### `plan-add-scope.sh`
+Planning + scope management. Two modes, one script.
+
+**Mode 1 — Plan** (first run or re-plan):
+
+Wizard flow:
+- AI reads constitution and proposes a phased task list.
+- Walks human through each phase: "Phase 1 covers X. Add, remove, or OK?"
+- Human approves phase by phase.
+
+**Mode 2 — Add scope** (new feature or bug fix mid-project):
+
+Wizard flow:
+- "What needs to be done?"
+- "When does it need to be done? (now / next phase / backlog)"
+- AI assesses dependencies, proposes placement, flags if it preempts current work.
+- Human approves placement.
+
+Output: `harness/loops/tasks.md` created or updated.
 
 **Task list shape:**
 ```
@@ -58,38 +75,63 @@ Planning phase. Run once after constitution, re-run when scope changes significa
 [ ] UI: create/edit form
 ```
 
-### `add-scope.sh`
-Scope change phase. Run when a new feature or bug fix arrives mid-project.
+---
 
-1. Human describes the new feature or bug fix.
-2. AI assesses: what does it touch, what does it depend on, which phase it belongs to.
-3. AI flags if it is a hotfix (preempts current work) or a backlog addition (queues into a phase).
-4. Human approves placement and priority.
-5. Output: task inserted into `tasks.md`, phase boundaries re-evaluated.
+### `execute-pre-task.sh`
+Pre-task phase. Run once per task before any coding.
 
-### `new-change.sh`
-Specify phase. Run once per task.
+Wizard flow:
+1. Picks next unchecked task from `tasks.md`.
+2. AI generates BDD acceptance criteria and explains them to the human.
+3. **Sensor check**: does a sensor exist for this task type?
+   - If yes: confirm it covers this task.
+   - If no: scaffold the sensor first (e.g. API task → add API test template, UI task → add component test template).
+4. Human approves BDD and sensors before coding starts.
+5. Creates a dedicated branch for this task.
 
-1. AI picks the next unchecked task from `tasks.md`.
-2. AI generates BDD acceptance criteria and scaffolds a spec file.
-3. Human validates: "Does this BDD capture what done means?"
-4. On approval: branch created, harness ready for loop.
+Output: spec file with BDD, branch created, sensors confirmed.
 
-### `run-loop.sh`
-Implement phase.
+---
 
-1. AI codes against the approved BDD.
-2. Ralph loop: iterate until sensors pass (lint, typecheck, tests, structural checks).
-3. If the same failure repeats twice: stop, surface to human, improve guides or spec.
+### `execute-task.sh`
+Implementation phase. Ralph loop.
+
+1. AI codes against the approved BDD on the task branch.
+2. Runs sensors on every iteration (lint, typecheck, tests, structural checks).
+3. If the same failure repeats twice: stops, surfaces to human, asks to improve guides or spec before continuing.
 4. Done when: all sensors green.
 
-### `archive-change.sh`
-Review + archive phase.
+At natural checkpoints, calls `commit.sh` to keep commits small and focused.
 
+---
+
+### `closure-task.sh`
+Closure phase. Run when sensors are green.
+
+Wizard flow:
 1. Diffs output against original BDD criteria.
-2. Prompts human: "Does the behavior match the intent? OK to archive?"
-3. On approval: archives spec, marks task done in `tasks.md`, tags commit.
-4. On rejection: feeds back into `run-loop.sh` with human notes.
+2. Presents to human: "Does the behavior match the intent?"
+3. On approval:
+   - Calls `commit.sh` for final commit.
+   - Marks task done in `tasks.md`.
+   - Archives spec.
+   - Merges branch.
+4. On rejection: returns to `execute-task.sh` with human notes.
+
+---
+
+### `commit.sh`
+Used by `execute-task.sh` and `closure-task.sh`. Not called directly.
+
+1. Auto-detects changed files.
+2. AI suggests a short, focused commit message based on the diff.
+3. Human approves or edits.
+4. Commits only files relevant to the current task (no accidental noise).
+
+Rules enforced:
+- One concern per commit.
+- No commit touches files outside the current task scope without explicit approval.
+- Message format: `<type>: <short description>` (e.g. `feat: add recipe list endpoint`).
 
 ---
 
@@ -101,21 +143,31 @@ harness/
     AGENTS.md
     architecture.md
     coding-rules.md
-  sensors/        ← automated validation (lint, tests, structural checks)
+  sensors/        ← automated validation, grown incrementally per task type
     check.sh
-  loops/          ← loop state per feature
+  loops/          ← task list and loop state
     tasks.md
     progress.md
-    task-template.md
 specs/
   product/        ← vision, data model, non-goals
   features/       ← one file per task, includes BDD acceptance criteria
 ```
 
-Coding style rules live in `guides/coding-rules.md` and are file-type specific:
+Sensors are not defined upfront in bulk. They grow as task types are encountered in `execute-pre-task.sh`.
+
+Coding style rules live in `guides/coding-rules.md`, file-type specific:
 - `.md` → clean, concise, no bloat
 - `.jsx` → clean separation of elements
 - `.test.js` → one assert per test, prioritize coverage
+
+---
+
+## Git discipline
+
+- Every task runs on its own branch.
+- Commits are small: one concern, no unrelated changes.
+- `commit.sh` enforces this by scoping to changed files and surfacing AI-suggested messages for human approval.
+- Branch merged only after `closure-task.sh` human approval.
 
 ---
 
@@ -141,4 +193,4 @@ The key mindset shift:
 - No auto-generated review prompts
 - No memory of prior harness patches
 
-These come after the six-script loop works end to end.
+These come after the five-script loop works end to end.
