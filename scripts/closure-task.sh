@@ -155,13 +155,13 @@ if yes_no "Does the behavior match the intent? (OK to close)"; then
   fi
 
   # ── Mark task done ────────────────────────────────────────────────────────────
+  TASK_NAME=$(head -2 "$SPEC_FILE" | grep '^# Task Spec:' | sed 's/# Task Spec: *//' || true)
   info "Marking task done in ${TASKS_FILE}..."
   if [[ -f "$TASKS_FILE" ]]; then
     if mark_task_done_by_slug "$SLUG"; then
       success "Marked task done (slug: ${SLUG})"
     else
       # Fallback: try matching by spec title
-      TASK_NAME=$(head -2 "$SPEC_FILE" | grep '^# Task Spec:' | sed 's/# Task Spec: *//' || true)
       if [[ -n "$TASK_NAME" ]]; then
         mark_task_done "$TASK_NAME" || true
         warn "Slug match failed — used title match: ${TASK_NAME}"
